@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The World-Observing Datalake</title>
+<style>
+  :root {
+    --bg-0:#050505; --bg-1:#0a0a0a; --bg-2:#111; --bg-3:#161616;
+    --fg:#f5f2e8; --muted:#b9b3a2; --faint:#807a6d;
+    --accent:#ffd84d; --accent-dim:rgba(255,216,77,.14);
+    --border:rgba(255,255,255,.09);
+    --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+    --sans:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+    --tier1:#7ee0c0; --tier2:#ffd84d; --tier3:#9db8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior:smooth; }
+  body {
+    font-family:var(--sans); background:var(--bg-0); color:var(--fg);
+    font-size:15px; line-height:1.65; min-height:100vh; overflow-x:hidden;
+  }
+  body::before {
+    content:''; position:fixed; inset:0; z-index:-1; opacity:.18;
+    background:
+      linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);
+    background-size:34px 34px;
+  }
+  a { color:var(--accent); text-decoration:none; }
+  code { font-family:var(--mono); font-size:.88em; color:var(--accent); }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:rgba(255,216,77,.18); border-radius:4px; }
+  ::-webkit-scrollbar-thumb:hover { background:rgba(255,216,77,.35); }
+
+  /* ---- Layout ---- */
+  .topbar {
+    position:sticky; top:0; z-index:50; display:flex; align-items:center;
+    gap:16px; padding:12px 22px; background:rgba(5,5,5,.92);
+    backdrop-filter:blur(10px); border-bottom:1px solid var(--border);
+  }
+  .brand { font-family:var(--mono); font-weight:700; font-size:14px; letter-spacing:.02em; color:var(--accent); white-space:nowrap; }
+  .brand .dot { color:var(--fg); }
+  .crumb { font-size:12px; color:var(--faint); font-family:var(--mono); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .crumb a { color:var(--muted); }
+  .crumb .sep { color:var(--faint); margin:0 6px; }
+  .tech-toggle {
+    font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.05em;
+    border:1px solid var(--border); background:none; color:var(--muted);
+    padding:6px 12px; border-radius:4px; cursor:pointer; white-space:nowrap; transition:all .15s;
+  }
+  .tech-toggle:hover { color:var(--accent); border-color:rgba(255,216,77,.35); }
+  .tech-toggle.on { color:var(--bg-0); background:var(--accent); border-color:var(--accent); font-weight:700; }
+
+  .layout { display:flex; max-width:1400px; margin:0 auto; }
+  .nav {
+    width:268px; flex-shrink:0; padding:24px 12px 60px; position:sticky; top:53px;
+    height:calc(100vh - 53px); overflow-y:auto; border-right:1px solid var(--border);
+  }
+  .nav-group { margin-bottom:6px; }
+  .nav-item {
+    display:flex; align-items:center; gap:8px; padding:7px 12px; border-radius:6px;
+    cursor:pointer; color:var(--muted); font-size:13.5px; transition:all .12s; user-select:none;
+  }
+  .nav-item:hover { background:var(--bg-2); color:var(--fg); }
+  .nav-item.active { background:var(--accent-dim); color:var(--accent); font-weight:600; }
+  .nav-item .ico { font-size:14px; width:18px; text-align:center; flex-shrink:0; }
+  .nav-item.lvl1 { padding-left:34px; font-size:12.5px; color:var(--faint); }
+  .nav-item.lvl1:hover { color:var(--fg); }
+  .nav-item.lvl1.active { color:var(--accent); background:transparent; }
+  .nav-caret { margin-left:auto; font-size:10px; color:var(--faint); transition:transform .15s; }
+  .nav-group.open .nav-caret { transform:rotate(90deg); }
+  .nav-children { display:none; }
+  .nav-group.open .nav-children { display:block; }
+
+  .main { flex:1; min-width:0; padding:34px 44px 120px; }
+  @media (max-width:880px){
+    .layout{flex-direction:column;}
+    .nav{width:100%;height:auto;position:static;border-right:none;border-bottom:1px solid var(--border);}
+    .main{padding:24px 18px 80px;}
+  }
+
+  /* ---- Content blocks ---- */
+  .eyebrow { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.16em; color:var(--accent); margin-bottom:14px; }
+  h1.page { font-size:34px; font-weight:800; line-height:1.15; letter-spacing:-.01em; margin-bottom:14px; }
+  h2.page { font-size:24px; font-weight:700; margin:38px 0 14px; letter-spacing:-.01em; }
+  h3 { font-size:16px; font-weight:700; margin:24px 0 8px; }
+  p.lede { font-size:18px; color:var(--muted); line-height:1.6; max-width:760px; margin-bottom:8px; }
+  p { max-width:780px; color:var(--muted); margin-bottom:12px; }
+  p strong, li strong { color:var(--fg); font-weight:600; }
+  ul.clean { list-style:none; max-width:780px; margin:8px 0 16px; }
+  ul.clean li { padding:7px 0 7px 24px; position:relative; color:var(--muted); border-bottom:1px solid var(--border); }
+  ul.clean li:before { content:'▸'; position:absolute; left:2px; color:var(--accent); }
+
+  .hero { padding:30px 0 10px; }
+  .hero h1 { font-size:46px; font-weight:900; line-height:1.08; letter-spacing:-.02em; max-width:880px; margin-bottom:20px; }
+  .hero h1 .hl { color:var(--accent); }
+  .hero .lede { font-size:20px; max-width:720px; }
+
+  .statbar { display:flex; flex-wrap:wrap; gap:14px; margin:30px 0; }
+  .stat { border:1px solid var(--border); border-radius:10px; padding:16px 20px; background:var(--bg-1); min-width:120px; }
+  .stat .n { font-family:var(--mono); font-size:28px; font-weight:700; color:var(--accent); line-height:1; }
+  .stat .l { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--faint); margin-top:8px; }
+
+  /* tiles */
+  .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(248px,1fr)); gap:16px; margin:26px 0; }
+  .tile {
+    border:1px solid var(--border); border-radius:12px; padding:22px; background:var(--bg-1);
+    cursor:pointer; transition:all .16s; position:relative; overflow:hidden;
+  }
+  .tile:hover { border-color:rgba(255,216,77,.4); transform:translateY(-2px); background:var(--bg-2); }
+  .tile .ico { font-size:26px; margin-bottom:12px; }
+  .tile h3 { margin:0 0 6px; font-size:17px; }
+  .tile p { font-size:13.5px; margin:0; max-width:none; line-height:1.5; }
+  .tile .go { font-family:var(--mono); font-size:11px; color:var(--accent); margin-top:14px; text-transform:uppercase; letter-spacing:.06em; }
+
+  /* component cards */
+  .cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:14px; margin:20px 0; }
+  .card {
+    border:1px solid var(--border); border-radius:11px; padding:18px 20px; background:var(--bg-1);
+    cursor:pointer; transition:all .15s;
+  }
+  .card:hover { border-color:rgba(255,216,77,.35); background:var(--bg-2); }
+  .card .top { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .card .ico { font-size:20px; }
+  .card .name { font-weight:700; font-size:15px; }
+  .card p { font-size:13px; margin:0; max-width:none; }
+  .card .tagrow { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
+  .tag { font-family:var(--mono); font-size:10px; padding:3px 7px; border-radius:4px; background:var(--bg-3); color:var(--muted); border:1px solid var(--border); }
+  .tag.planned { color:var(--faint); border-style:dashed; }
+  .card.planned { border-style:dashed; cursor:pointer; }
+  .card.planned:hover { border-color:rgba(255,216,77,.28); }
+  .card.planned .name::after { content:' · planned'; font-family:var(--mono); font-size:10px; font-weight:500; color:var(--faint); margin-left:4px; }
+
+  .callout {
+    border-left:3px solid var(--accent); background:var(--accent-dim); border-radius:0 8px 8px 0;
+    padding:14px 18px; margin:20px 0; max-width:800px;
+  }
+  .callout .k { font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--accent); margin-bottom:4px; }
+  .callout p { color:var(--fg); margin:0; }
+
+  /* technical detail (hidden by default for exec view) */
+  .tech { display:none; }
+  body.show-tech .tech { display:block; }
+  .tech-inline { display:none; }
+  body.show-tech .tech-inline { display:inline; }
+  .techbox {
+    border:1px dashed rgba(157,184,255,.3); border-radius:8px; padding:14px 18px; margin:16px 0;
+    background:rgba(157,184,255,.04); max-width:820px;
+  }
+  .techbox .k { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.1em; color:var(--tier3); margin-bottom:8px; }
+  .techbox code { color:var(--tier3); }
+  table.api { width:100%; max-width:820px; border-collapse:collapse; font-family:var(--mono); font-size:12px; margin:8px 0; }
+  table.api td { padding:6px 10px; border-bottom:1px solid var(--border); color:var(--muted); vertical-align:top; }
+  table.api td:first-child { color:var(--accent); white-space:nowrap; }
+
+  /* ---- tier diagram ---- */
+  .flow { margin:30px 0; overflow-x:auto; padding-bottom:8px; }
+  .flow-inner { display:flex; align-items:stretch; gap:0; min-width:760px; }
+  .flow-col { flex:1; min-width:150px; display:flex; flex-direction:column; }
+  .flow-arrow { display:flex; align-items:center; color:var(--faint); font-size:24px; padding:0 6px; }
+  .tierbox { border:1px solid var(--border); border-radius:12px; padding:18px; background:var(--bg-1); flex:1; transition:all .15s; cursor:pointer; }
+  .tierbox:hover { background:var(--bg-2); }
+  .tierbox .num { font-family:var(--mono); font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; display:inline-block; margin-bottom:10px; }
+  .tierbox .num.t1 { background:rgba(126,224,192,.15); color:var(--tier1); }
+  .tierbox .num.t2 { background:rgba(255,216,77,.15); color:var(--tier2); }
+  .tierbox .num.t3 { background:rgba(157,184,255,.15); color:var(--tier3); }
+  .tierbox h4 { font-size:15px; margin-bottom:6px; }
+  .tierbox p { font-size:12.5px; margin:0; max-width:none; line-height:1.5; }
+  .flow-end { display:flex; flex-direction:column; justify-content:center; padding-left:6px; min-width:120px; }
+  .flow-end .agent { border:1px solid rgba(255,216,77,.35); border-radius:12px; padding:16px; text-align:center; background:var(--accent-dim); }
+  .flow-end .agent .ico { font-size:26px; }
+  .flow-end .agent .l { font-size:12px; color:var(--fg); margin-top:6px; font-weight:600; }
+  .flow-src { display:flex; flex-direction:column; justify-content:center; min-width:118px; }
+  .flow-src .src { border:1px dashed var(--border); border-radius:10px; padding:14px; text-align:center; }
+  .flow-src .src .ico { font-size:24px; }
+  .flow-src .src .l { font-size:11px; color:var(--muted); margin-top:6px; }
+
+  .coverage { display:inline-block; font-family:var(--mono); font-size:12.5px; color:var(--tier1); border:1px solid rgba(126,224,192,.3); background:rgba(126,224,192,.06); padding:6px 12px; border-radius:7px; margin:2px 0 6px; }
+  .coverage strong { color:var(--fg); font-weight:600; }
+  .example { margin-top:14px; }
+  .example .lbl { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.12em; color:var(--faint); margin-bottom:6px; }
+  pre.code { background:var(--bg-0); border:1px solid var(--border); border-radius:7px; padding:12px 14px; overflow-x:auto; font-family:var(--mono); font-size:12px; color:var(--tier3); line-height:1.55; white-space:pre; }
+  .backlink { font-family:var(--mono); font-size:12px; color:var(--muted); cursor:pointer; display:inline-flex; gap:6px; align-items:center; margin-bottom:18px; }
+  .backlink:hover { color:var(--accent); }
+  .divider { height:1px; background:var(--border); margin:34px 0; max-width:820px; }
+  .phase { display:flex; gap:18px; margin:0 0 4px; max-width:820px; }
+  .phase .rail { display:flex; flex-direction:column; align-items:center; }
+  .phase .pin { width:30px; height:30px; border-radius:50%; background:var(--bg-2); border:1px solid var(--accent); color:var(--accent); font-family:var(--mono); font-weight:700; display:flex; align-items:center; justify-content:center; font-size:13px; flex-shrink:0; }
+  .phase .line { width:1px; flex:1; background:var(--border); margin:4px 0; }
+  .phase .body { padding-bottom:22px; }
+  .phase .body h3 { margin:2px 0 4px; }
+  .phase .body p { font-size:14px; margin:0; }
+  .footnote { font-size:12px; color:var(--faint); font-family:var(--mono); margin-top:50px; padding-top:18px; border-top:1px solid var(--border); max-width:820px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">world&#8209;observer<span class="dot">.</span>dl</div>
+    <div class="crumb" id="crumb"></div>
+    <button class="tech-toggle" id="techBtn">+ Technical detail</button>
+  </div>
+
+  <div class="layout">
+    <nav class="nav" id="nav"></nav>
+    <main class="main" id="main"></main>
+  </div>
+
+<script>
+/* ============================================================
+   SANITIZED CONTENT MODEL — internal proper nouns genericized.
+   No company name, real S3 bucket, or internal dataset names.
+   ============================================================ */
+
+const PAGES = {};
+
+/* ---------- L0  HOME ---------- */
+PAGES.home = { title:"Overview", nav:"Overview", ico:"◎", render: () => `
+  <div class="hero">
+    <div class="eyebrow">A proposal · world-observing data platform v1.5</div>
+    <h1>A datalake that <span class="hl">watches the world</span>, remembers it in tiers, and lets AI agents explore it on demand.</h1>
+    <p class="lede">Autonomous "watchers" continuously pull real-world signals — shipping, filings, economics, news, disasters, markets — into a single store. AI agents then query across everything to answer questions no single feed could.</p>
+  </div>
+
+  <div class="statbar">
+    <div class="stat"><div class="n">10+</div><div class="l">Live services</div></div>
+    <div class="stat"><div class="n">15</div><div class="l">Watcher services</div></div>
+    <div class="stat"><div class="n">3</div><div class="l">Storage tiers</div></div>
+    <div class="stat"><div class="n">7</div><div class="l">Research archetypes</div></div>
+    <div class="stat"><div class="n">24/7</div><div class="l">Autonomous collection</div></div>
+  </div>
+
+  <div class="callout">
+    <div class="k">The one-sentence pitch</div>
+    <p>Instead of an analyst opening ten dashboards, one AI agent reads the whole world — already collected, already joined — and reports back.</p>
+  </div>
+
+  <h2 class="page">Start here</h2>
+  <p>Pick a thread. Each opens to a plain-language overview; turn on <strong>Technical detail</strong> (top-right) any time you want the engineering underneath.</p>
+  <div class="tiles">
+    ${tile('concept','◍','How it works','Signals flow through three storage tiers — instant alerts, a live store, and a deep archive.','See the data flow')}
+    ${tile('observers','🛰','What it watches','Independent watchers grouped by domain — economics, hazards, maritime, news, markets and filings.','Meet the watchers')}
+    ${tile('intelligence','🧠','How AI uses it','An intelligence hub and agents that read across every layer at once.','See the brain')}
+    ${tile('research','🔬','Autonomous research','LLM researchers invent and test trading-signal ideas against the lake; a meta-layer keeps only what survives.','See the lab')}
+    ${tile('infrastructure','⚙','What runs it','The cloud plumbing: scheduling, object storage, messaging, distributed query, code hosting.','Look under the hood')}
+    ${tile('proposal','◆','Build one like it','Why it is worth doing, and a phased plan to stand one up.','Read the proposal')}
+  </div>
+`};
+
+/* ---------- L1  CONCEPT (tiers) ---------- */
+PAGES.concept = { title:"How it works", nav:"How it works", ico:"◍", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">The data system</div>
+  <h1 class="page">Three tiers, one flow</h1>
+  <p class="lede">Data has different jobs at different ages. Fresh signals need to fire alerts <em>now</em>; recent data needs to be queried <em>fast</em>; everything else needs to be kept <em>cheaply, forever</em>. The system splits storage to match.</p>
+
+  <div class="flow">
+    <div class="flow-inner">
+      <div class="flow-src"><div class="src"><div class="ico">🌍</div><div class="l">World signals</div></div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-col"><div class="tierbox" onclick="go('tier-event')"><span class="num t1">TIER 1</span><h4>Event signaling</h4><p>"Something new arrived." A lightweight nudge that wakes up whoever cares.</p></div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-col"><div class="tierbox" onclick="go('tier-hot')"><span class="num t2">TIER 2</span><h4>Hot store</h4><p>The last days–weeks, query-ready in milliseconds for live questions.</p></div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-col"><div class="tierbox" onclick="go('tier-cold')"><span class="num t3">TIER 3</span><h4>Cold storage</h4><p>The full history, compressed and cheap, for deep analysis.</p></div></div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-end"><div class="agent"><div class="ico">🧠</div><div class="l">AI agents query all three</div></div></div>
+    </div>
+  </div>
+
+  <div class="callout">
+    <div class="k">Why it matters</div>
+    <p>Most systems pick one tier and pay for it elsewhere — either they are fast but forgetful, or complete but slow. Tiering gets both: instant reaction <em>and</em> total recall.</p>
+  </div>
+
+  <h2 class="page">The three tiers</h2>
+  <div class="cards">
+    ${card('tier-event','⚡','Tier 1 · Event signaling','A tiny message says "new data landed" so downstream work starts within seconds — nobody polls and waits.')}
+    ${card('tier-hot','🔥','Tier 2 · Hot store','Recent data kept beside each watcher and served over a simple API for live, low-latency questions.')}
+    ${card('tier-cold','🧊','Tier 3 · Cold storage','Columnar files in cheap object storage, with a catalog so the whole archive is one queryable table.')}
+  </div>
+`};
+
+PAGES['tier-event'] = { title:"Tier 1 · Event signaling", nav:"Event signaling", ico:"⚡", parent:"concept", render: () => `
+  ${back('concept')}
+  <div class="eyebrow">Tier 1 · the nudge</div>
+  <h1 class="page">⚡ Event signaling</h1>
+  <p class="lede">When a watcher collects something new, it announces it. Anyone interested reacts immediately — no constant checking, no wasted compute.</p>
+  <ul class="clean">
+    <li><strong>What it carries:</strong> a small note — "this source updated" — not the data itself.</li>
+    <li><strong>What it unlocks:</strong> near-real-time reactions and clean coordination between services.</li>
+    <li><strong>Bonus job:</strong> it also acts as a traffic cop, making sure two writers never clash over the same file.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>Implemented as <code>turbomsg</code> — an S3-backed message layer (no broker to run). Topics follow <code>data.&lt;watcher&gt;.&lt;event&gt;</code>, e.g. <code>data.fred-watch.observations-updated</code>, <code>data.firms-watch.fires-updated</code>, <code>data.edgar-watch.filings-polled</code>. The same layer provides write-lock coordination for the cold-storage catalog.</p>
+  </div>
+`};
+
+PAGES['tier-hot'] = { title:"Tier 2 · Hot store", nav:"Hot store", ico:"🔥", parent:"concept", render: () => `
+  ${back('concept')}
+  <div class="eyebrow">Tier 2 · the live desk</div>
+  <h1 class="page">🔥 Hot store</h1>
+  <p class="lede">Each watcher keeps its recent data right next to itself and serves it over a simple web API. Ask "what happened in the last 24 hours?" and the answer comes back instantly.</p>
+  <ul class="clean">
+    <li><strong>Optimized for:</strong> speed and freshness over depth.</li>
+    <li><strong>Shape:</strong> small embedded databases, one per watcher — no shared bottleneck.</li>
+    <li><strong>Access:</strong> plain HTTP endpoints any tool or agent can call.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>Per-service embedded <code>SQLite</code> / <code>DuckDB</code> with full-text search (FTS5) where useful. Each watcher exposes a Hono HTTP API on its own port. Hot stores are continuously replicated to cold storage so nothing is lost on restart.</p>
+  </div>
+`};
+
+PAGES['tier-cold'] = { title:"Tier 3 · Cold storage", nav:"Cold storage", ico:"🧊", parent:"concept", render: () => `
+  ${back('concept')}
+  <div class="eyebrow">Tier 3 · the deep archive</div>
+  <h1 class="page">🧊 Cold storage</h1>
+  <p class="lede">Everything ever collected, written to cheap cloud object storage in a compact analytical format — and wrapped in a catalog so the entire archive behaves like one giant table you can query.</p>
+  <ul class="clean">
+    <li><strong>Optimized for:</strong> cost and completeness over latency.</li>
+    <li><strong>Why a catalog:</strong> it turns millions of files into a single queryable surface, with versioning and time-travel.</li>
+    <li><strong>Who reads it:</strong> analysts and AI agents running historical, cross-source analysis.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>Object store: a single S3 bucket (<code>firm-datalake</code>) holding Parquet. Catalog: <code>DuckLake</code> (DuckDB-native lakehouse) for ACID, versioning and time-travel over the Parquet. A periodic compaction job merges small files; indexers (prediction markets, on-chain data) write directly into the catalog.</p>
+    <div class="example"><div class="lbl">Example — the entire archive as one queryable table</div><pre class="code">ATTACH 'ducklake:s3://firm-datalake/catalog.ducklake' AS lake (READ_ONLY);\nSELECT count(*) FROM lake.polymarket_trades;   -- 405,012,316 rows</pre></div>
+  </div>
+`};
+
+/* ---------- L1  OBSERVERS ---------- */
+const WATCHER_GROUPS = [
+  { title:'Economics & central banks', lede:'One watcher per institution or API — rates, inflation, GDP and release calendars from the Fed, ECB, BOJ, IMF and World Bank (replacing the old combined macro-watch service).', ids:['fred-watch','ecb-watch','boj-watch','imf-watch','worldbank-watch'] },
+  { title:'Hazards & climate', lede:'Physical-world stress kept separate from economic series — official disaster alerts and satellite fire/heat detections.', ids:['disaster-watch','firms-watch'] },
+  { title:'Maritime & geospatial', lede:'Live vessel positions and chokepoint pressure on critical shipping lanes.', ids:['vessel-watch','sea-watch'] },
+  { title:'News & sentiment', lede:'Merged, searchable news streams for event context.', ids:['news-watch'] },
+  { title:'Markets & flows', lede:'Crowd expectations, on-chain activity and licensed vendor prices.', ids:['prediction-market','onchain','vendor-market'] },
+  { title:'Corporate & regulatory', lede:'SEC filings and agent-generated earnings briefs.', ids:['edgar-watch','earnings-intel'] },
+];
+
+const WATCHERS = [
+  ['fred-watch','📈','US economic data (FRED)','Federal Reserve economic series — rates, inflation, GDP, labor, housing and markets — plus the release calendar and St. Louis Fed commentary.',
+    ['42 FRED series','Release calendar','FRED Blog RSS'],
+    'Polls the St. Louis Fed FRED API every 30 minutes; backfills full history on first run (~126K+ observations). Release calendar daily; blog RSS every 4 hours. Split out from the legacy <code>macro-watch</code> monolith. API: <code>/api/fred/series</code>, <code>/api/fred/observations</code>, <code>/api/fred/latest</code>, <code>/api/fred/releases</code>, <code>/api/fred/blog</code>.',
+    'FRED series reach back decades',
+    'GET /api/fred/observations?series=DFF&limit=2\n\n[{ "date": "2026-06-25", "value": 4.33 }]'],
+  ['ecb-watch','🇪🇺','ECB & euro-area data','European Central Bank indicators — key rates, FX, yield curves, inflation (HICP) and monetary aggregates.',
+    ['ECB SDMX API','Rates · FX · yields','HICP inflation'],
+    'Polls the public ECB SDMX API. Daily rates, FX and yield curves; monthly inflation and money supply. API: <code>/api/rates</code>, <code>/api/fx</code>, <code>/api/yields</code>, <code>/api/hicp</code>.',
+    'Live ECB SDMX · archived from 2026',
+    'GET /api/rates\n\n[{ "series": "ECBDFR", "value": 2.15, "date": "2026-06-25" }]'],
+  ['boj-watch','🇯🇵','Japan & BOJ data','Bank of Japan and Japan macro series — short and long rates, money stock, FX and producer prices — plus the BOJ monetary policy meeting calendar.',
+    ['10 Japan series','BOJ MPM calendar','FRED mirror + BOJ'],
+    'Polls Japan economic series (primarily via FRED mirror) every 30 minutes; BOJ meeting dates seeded at startup. API: <code>/api/series</code>, <code>/api/observations</code>, <code>/api/latest</code>, <code>/api/calendar</code>.',
+    'Japan series + BOJ calendar · archived from 2026',
+    'GET /api/latest?series=INTDSRJPM193N\n\n[{ "date": "2026-06-25", "value": 0.48 }]'],
+  ['imf-watch','🌐','IMF global indicators','IMF DataMapper series across G20 and emerging markets — inflation, GDP, trade, labor and government finance — plus IMF blog and WEO release calendar.',
+    ['15 IMF indicators','36 countries','IMF Blog RSS'],
+    'Daily poll of the IMF DataMapper API with full backfill (2015–2026) on first run. Blog RSS every 4 hours; WEO and meeting calendars seeded at startup. API: <code>/api/indicator/:code</code>, <code>/api/latest</code>, <code>/api/blog</code>, <code>/api/calendar</code>.',
+    'IMF indicators 2015–2026 · 36 focus countries',
+    'GET /api/indicator/PCPIPCH?country=USA\n\n[{ "year": 2026, "value": 2.7 }]'],
+  ['worldbank-watch','🏦','World Bank open data','World Bank Open Data indicators — GDP, inflation, trade, labor, demographics, financial, energy and environment — for 35 major economies.',
+    ['15 WB indicators','35 countries','World Bank Blog RSS'],
+    'Daily poll with 200ms rate limiting; 10-year backfill on first run. Blog RSS every 4 hours; key report dates seeded at startup. Split out from the legacy <code>macro-watch</code> scope. API: <code>/api/indicator/:code</code>, <code>/api/latest</code>, <code>/api/blog</code>, <code>/api/calendar</code>.',
+    'World Bank indicators 2015–2026 · 35 focus countries',
+    'GET /api/indicator/NY.GDP.MKTP.KD.ZG?country=USA\n\n[{ "year": 2025, "value": 2.8 }]'],
+  ['disaster-watch','🌪','Natural disasters','Official alerts for earthquakes, storms, floods and other events — graded by severity.',
+    ['GDACS · WMO · Copernicus'],
+    'Pulls official disaster alerts; stores in SQLite + Parquet (partitioned by year). API: <code>/api/alerts/search?min_severity=Moderate</code>.',
+    'Archived from 2025',
+    'GET /api/alerts/search?min_severity=Moderate\n\n[{ "event": "Tropical Cyclone", "severity": "Severe",\n   "country": "PHL", "ts": "2026-06-25T22:10:00Z" }]'],
+  ['firms-watch','🔥','Satellite fire detection','NASA FIRMS VIIRS hotspots across 28 countries — near-real-time wildfire and heat stress, separate from economic polling.',
+    ['NASA FIRMS','28 countries','VIIRS 375m'],
+    'Polls NASA FIRMS every 4 hours; 30-day rolling window in SQLite. Extracted from <code>macro-watch</code> so fire/climate signals are not bundled with FRED. API: <code>/api/fires</code>, <code>/api/fires/summary</code>.',
+    'Fire detections from 2026 · 3–4h satellite latency',
+    'GET /api/fires?region=USA&days=1&limit=50\n\n[{ "lat": 34.12, "lon": -118.25, "confidence": "high", "frp": 42.1 }]'],
+  ['vessel-watch','🚢','Vessel tracking','Live positions of ships worldwide — useful for spotting congestion, route changes and chokepoint pressure.',
+    ['Real-time AIS via WebSocket','Writes history to cold storage'],
+    'Streams vessel positions from <code>aisstream.io</code> over WebSocket; an archiver flushes Parquet to S3. API: <code>/api/positions</code>, <code>/api/stats</code>.',
+    'Live AIS stream · archived from 2026',
+    'GET /api/positions\n\n[{ "mmsi": 244670312, "lat": 51.95, "lon": 4.13,\n   "sog": 12.4, "cog": 87, "ts": "2026-06-26T08:14:02Z" }]'],
+  ['sea-watch','⚓','Maritime chokepoints','Pressure signals on the world&#39;s critical shipping lanes — insurance friction, war-risk listings and transit stress.',
+    ['Chokepoint signals','PDF parsing'],
+    'DuckDB over JSONL event files; parses insurer/war-risk PDFs for listed areas. API: <code>/api/signals/search?chokepoint=suez</code>.',
+    'Chokepoint history backfilled to 2019',
+    'GET /api/signals/search?chokepoint=suez&friction_only=true\n\n[{ "chokepoint": "suez", "signal": "war_risk_listed",\n   "source": "JWC", "date": "2026-06-20" }]'],
+  ['news-watch','📰','News aggregation','A merged stream of world news from several sources, de-duplicated and searchable.',
+    ['5 sources','Full-text search'],
+    'Aggregates RSS, Guardian, GDELT, OpenBB and market feeds into SQLite/FTS5; replicated to S3 via Litestream. API: <code>/api/news/search</code>.',
+    'Archived from 2025',
+    'GET /api/news/search?q=opec&hours=24\n\n[{ "source": "guardian", "title": "OPEC+ holds output...",\n   "published": "2026-06-26T06:00:00Z" }]'],
+  ['prediction-market','🎲','Prediction markets','What crowds are betting on real-world outcomes — elections, events, prices — a fast, numeric read on expectations.',
+    ['Kalshi · Polymarket','REST + on-chain'],
+    'Two-pronged indexer, daily. A REST collector pulls markets &amp; trades from Kalshi (<code>api.elections.kalshi.com</code>) and Polymarket (<code>clob.polymarket.com</code>); an optional on-chain updater decodes Polymarket <code>OrderFilled</code> events straight off the Polygon blockchain. Both write into the cold-storage catalog (DuckLake), with rate-limit-aware paging and resumable cursors.',
+    'Kalshi from 2021 (~88M trades) · Polymarket from 2023 (~405M trades)',
+    '-- query the cold-storage catalog directly\nSELECT count(*) FROM lake.polymarket_trades;\n-- 405,012,316  (since 2023-03)'],
+  ['onchain','⛓','On-chain &amp; crypto flows','Daily blockchain activity — stablecoin supply, exchange volumes, large "whale" transfers, gas, lending and more — a read on crypto liquidity and risk appetite.',
+    ['Dune Analytics','7 on-chain tables'],
+    'Dune Analytics ingestion every 6 hours via the Execute-SQL API, into DuckLake tables <code>dune_stablecoin_supply</code>, <code>dune_dex_volumes</code>, <code>dune_whale_transfers</code>, <code>dune_gas_daily</code>, <code>dune_lending_daily</code>, <code>dune_nft_daily</code> and <code>dune_token_prices_daily</code>. Rate-limit-aware and resumable: it backfills with S3 cursors and stops gracefully when limits hit, picking up next run.',
+    'Stablecoins &amp; whale transfers from 2023 · others more recent',
+    'SELECT min(day), max(day) FROM lake.dune_stablecoin_supply;\n-- 2023-01-01  →  2026-06-25'],
+  ['vendor-market','💹','Licensed market data','External provider data for prices, company identity and supply-chain relationships — the licensed counterpart layer that turns a macro event into a named instrument and a supply-chain path.',
+    ['FactSet supply chain','Prices + security master','RBICS sectors','~2B futures bars'],
+    'Ingests licensed vendor datasets into the DuckLake catalog. Current lake content includes <code>minutebars</code> (~2.03B 1-minute OHLCV futures bars, 2005–2026), <code>equity_dailybars</code> (~577K daily bars, 2024), <code>supply_chain</code> (~403K FactSet SCR supplier/customer relationships), <code>historical_security_master</code> (~354K identifier mappings), <code>rbics_entity_sector</code> (~7.26M rows) and <code>rbics_structure_l2</code>. Bloomberg and FactSet-style licensed feeds share this watcher slot — one counterpart ingest pattern, not a separate watcher per vendor.',
+    'Futures minutebars 2005–2026 · FactSet supply chain ~403K · security master ~354K',
+    'SELECT count(*) FROM lake.main.minutebars;\n-- ~2.03B rows\n\nSELECT count(*) FROM lake.main.supply_chain;\n-- ~403K FactSet SCR relationships'],
+  ['edgar-watch','📄','Corporate filings','Every new SEC filing as it is published — 8-Ks, annual reports and the numbers inside them.',
+    ['Full-index monitoring','Full-text search'],
+    'Monitors the SEC EDGAR full index; FTS5 search over filings; extracts XBRL company facts. API: <code>/api/filings</code>, <code>/api/search</code>, <code>/api/company/:cik/facts</code>.',
+    'Live full-index · archived from 2026',
+    'GET /api/filings?form=8-K&days=7\n\n[{ "cik": "0000320193", "form": "8-K",\n   "filed": "2026-06-25", "title": "Results of Operations" }]'],
+  ['earnings-intel','🏢','Pre-earnings intelligence','LLM analysis of a company ahead of its earnings, synthesizing many data sources into a brief.',
+    ['LLM agents','9 data sources'],
+    'Agent pipeline that analyzes upcoming earnings across multiple feeds. API: <code>/api/events</code>, <code>/api/watchlist</code>, <code>/api/backtest</code>.',
+    'Runs ahead of each earnings event',
+    'GET /api/events\n\n[{ "ticker": "EXMPL", "earnings_date": "2026-07-02",\n   "brief_status": "ready", "sources": 9 }]'],
+];
+
+const POTENTIAL_WATCHERS = [
+  ['planet-watch','🛰','Commercial satellite imagery (Planet)','Daily medium- and high-resolution Earth observation — change detection over ports, fields, infrastructure and disaster zones. Complements FIRMS fire hotspots and vessel AIS with wall-to-wall scene history.',
+    ['Licensed counterpart','Daily revisit','Change detection'],
+    'Potential ingest from <a href="https://www.planet.com/" target="_blank" rel="noopener noreferrer">Planet</a> — catalog scenes and derived metrics (vegetation stress, built-area change, flood extent) through the same hot store, event tier and cold archive as every other watcher. Source: <a href="https://www.planet.com/" target="_blank" rel="noopener noreferrer">planet.com</a>.'],
+];
+
+const WATCHER_BY_ID = Object.fromEntries(WATCHERS.map(w => [w[0], w]));
+const WATCHER_GROUP_LABEL = Object.fromEntries(WATCHER_GROUPS.flatMap(g => g.ids.map(id => [id, g.title])));
+const ALL_WATCHER_IDS = WATCHER_GROUPS.flatMap(g => g.ids);
+const ALL_POTENTIAL_IDS = POTENTIAL_WATCHERS.map(w => w[0]);
+
+PAGES.observers = { title:"What it watches", nav:"What it watches", ico:"🛰", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">The observers</div>
+  <h1 class="page">A fleet of watchers</h1>
+  <p class="lede">Each watcher is a small, independent service that does one thing well: keep an eye on one slice of the world and feed it into the shared store. Economics, hazards and maritime each have their own services — add a new slice by adding a watcher, not by rewiring the rest.</p>
+  <div class="callout">
+    <div class="k">Free and licensed</div>
+    <p>Watchers are the general ingestion path into the lake — the same pattern whether the source is <strong>free and open</strong> (public APIs, RSS, government feeds) or <strong>licensed counterpart</strong> data (vendor prices, identifiers, supply chain). Hot store, events and cold archive work the same either way.</p>
+  </div>
+  ${WATCHER_GROUPS.map(g => `
+    <h2 class="page">${g.title}</h2>
+    <p class="lede" style="margin-top:-6px;font-size:15px;color:var(--muted)">${g.lede}</p>
+    <div class="cards">${g.ids.map(id => { const w = WATCHER_BY_ID[id]; return card(w[0],w[1],w[2],w[3]); }).join('')}</div>
+  `).join('')}
+  <h2 class="page">Potential watchers</h2>
+  <p class="lede" style="margin-top:-6px;font-size:15px;color:var(--muted)">Same ingestion pattern, not yet deployed — counterpart and licensed feeds on the roadmap. Each would plug in as a new watcher without changing the rest of the system.</p>
+  <div class="cards">${POTENTIAL_WATCHERS.map(w => plannedCard(w[0],w[1],w[2],w[3],w[4])).join('')}</div>
+  <div class="callout">
+    <div class="k">The archive runs deep</div>
+    <p>This is not a thin live feed. Prediction markets reach back to <strong>2021</strong> (~88M trades), maritime chokepoints to <strong>2019</strong>, FRED series to <strong>decades</strong>, on-chain flows to <strong>2023</strong> — hundreds of millions of records already collected. Open any watcher to see its coverage.</p>
+  </div>
+  <div class="callout">
+    <div class="k">The design idea</div>
+    <p>Watchers don't know about each other. They all speak the same two languages — "here's my recent data over HTTP" and "here's my history in the lake" — so the system grows by addition, not rewiring.</p>
+  </div>
+`};
+
+WATCHERS.forEach(w => {
+  PAGES[w[0]] = { title:w[2], nav:w[2], ico:w[1], parent:"observers", render: () => `
+    ${back('observers')}
+    <div class="eyebrow">${WATCHER_GROUP_LABEL[w[0]] || 'Watcher'} · ${w[0]}</div>
+    <h1 class="page">${w[1]} ${w[2]}</h1>
+    <p class="lede">${w[3]}</p>
+    ${w[6] ? `<div class="coverage">📊 Data coverage — ${w[6]}</div>` : ''}
+    <div class="tagrow" style="margin:14px 0;">${w[4].map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+    <div class="techbox tech">
+      <div class="k">Technical detail</div>
+      <p>${w[5]}</p>
+      ${w[7] ? `<div class="example"><div class="lbl">Example</div><pre class="code">${w[7]}</pre></div>` : ''}
+    </div>
+    <p class="tech">Like every watcher, it announces new data on the event tier and replicates its full history to cold storage — so it plugs into the rest of the system for free.</p>
+  `};
+});
+
+POTENTIAL_WATCHERS.forEach(w => {
+  PAGES[w[0]] = { title:w[2], nav:w[2], ico:w[1], parent:"observers", render: () => `
+    ${back('observers')}
+    <div class="eyebrow">Potential watcher · ${w[0]}</div>
+    <h1 class="page">${w[1]} ${w[2]}</h1>
+    <p class="lede">${w[3]}</p>
+    <div class="tagrow" style="margin:14px 0;"><span class="tag planned">PLANNED</span>${w[4].map(t=>`<span class="tag planned">${t}</span>`).join('')}</div>
+    <div class="techbox tech">
+      <div class="k">Technical detail</div>
+      <p>${w[5]}</p>
+    </div>
+    <p class="tech">When built, this would use the same watcher contract — HTTP hot API, turbomsg events, cold Parquet archive — as the live fleet above.</p>
+  `};
+});
+
+/* ---------- L1  INTELLIGENCE ---------- */
+PAGES.intelligence = { title:"How AI uses it", nav:"How AI uses it", ico:"🧠", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">The intelligence layer</div>
+  <h1 class="page">The brain on top</h1>
+  <p class="lede">Collecting data is half the system. The other half is an intelligence layer that reads <em>across</em> every watcher and every tier at once — the thing a human with ten dashboards can't do.</p>
+  <div class="cards">
+    ${card('hub','🛰','Cross-layer hub','A single front door that proxies every watcher and runs queries spanning all of them — "show me filings, news and vessel moves around this event."')}
+    ${card('agent','🤖','Agent orchestrator','LLM agents that decide what to look at, pull from the hub and the lake, and produce an answer or a brief.')}
+    ${card('sentinel','🔔','Sentinel · proactive monitor','Wakes every four hours, reads every watcher and the lake, and publishes a brief — major events skip the wait and trigger it immediately.')}
+    ${card('oraclebot','💬','Catalog assistant','A chat bot in Slack that knows every dataset in the lake — ask in plain language what data exists and how to query it.')}
+  </div>
+  <div class="callout">
+    <div class="k">The payoff</div>
+    <p>Because everything is already collected and joinable, an agent answers a question in one pass instead of a person stitching ten sources together by hand.</p>
+  </div>
+`};
+
+PAGES.hub = { title:"Cross-layer hub", nav:"Cross-layer hub", ico:"🛰", parent:"intelligence", render: () => `
+  ${back('intelligence')}
+  <div class="eyebrow">Intelligence · the hub</div>
+  <h1 class="page">🛰 Cross-layer hub</h1>
+  <p class="lede">One service sits above all the watchers, presents them as a single API, and can run a query that touches several of them — and the deep archive — in one go.</p>
+  <ul class="clean">
+    <li><strong>Proxies</strong> every watcher so callers learn one address, not ten.</li>
+    <li><strong>Joins across sources</strong> — the cross-source questions are where the value is.</li>
+    <li><strong>Serves both people and agents</strong> through the same endpoints.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>The "world-observer" service (TS/Bun/Hono/DuckDB). Proxies economics watchers (FRED, ECB, BOJ, IMF, World Bank), geospatial and hazard watchers, plus edgar, news, disaster and maritime services — downloads their cold-storage replicas, and runs DuckDB cross-layer queries. API: <code>/api/events</code>, <code>/api/orchestrator</code>, <code>/api/watchlist</code>, <code>/api/ticker</code>.</p>
+  </div>
+`};
+
+PAGES.agent = { title:"Agent orchestrator", nav:"Agent orchestrator", ico:"🤖", parent:"intelligence", render: () => `
+  ${back('intelligence')}
+  <div class="eyebrow">Intelligence · the agents</div>
+  <h1 class="page">🤖 Agent orchestrator</h1>
+  <p class="lede">LLM agents are the active explorers. Given a question, an agent chooses which sources to read, pulls them through the hub, and reasons over the result.</p>
+  <ul class="clean">
+    <li><strong>Explores</strong> rather than follows a fixed report — it picks the relevant feeds itself.</li>
+    <li><strong>Grounded</strong> in real collected data, not just the model's memory.</li>
+    <li><strong>Composable</strong> — the same pattern powers the pre-earnings briefs and ad-hoc questions.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>An orchestrator deployment plus per-domain agent pipelines (e.g. the pre-earnings "Pi-agents"). Agents call the hub's HTTP API and query the DuckLake catalog directly for history.</p>
+  </div>
+`};
+
+PAGES.sentinel = { title:"Sentinel · proactive monitor", nav:"Sentinel", ico:"🔔", parent:"intelligence", render: () => `
+  ${back('intelligence')}
+  <div class="eyebrow">Intelligence · always-on</div>
+  <h1 class="page">🔔 Sentinel · proactive monitor</h1>
+  <p class="lede">Most intelligence systems wait to be asked. The sentinel doesn't — it wakes on a schedule, reads every watcher, traces supply-chain effects through the lake, and writes a structured brief. When you open Slack in the morning, the overnight story is already waiting.</p>
+  <ul class="clean">
+    <li><strong>Scheduled:</strong> runs every four hours, around the clock, regardless of human activity.</li>
+    <li><strong>Event-triggered:</strong> a major disaster, a news spike, or chokepoint friction fires it immediately — no waiting for the next cycle.</li>
+    <li><strong>Cross-layer:</strong> reads every watcher and the supply-chain graph in one pass, tracing who sits downstream of an event.</li>
+    <li><strong>Persistent memory:</strong> remembers what it flagged last cycle, so briefs note what <em>changed</em>, not just what is.</li>
+    <li><strong>Structured output:</strong> a WorldImpactBrief — three horizons (immediate / weeks / months), affected instruments, magnitude scores.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>Implemented in <code>world-observer</code> (TS/Bun/Hono, port 3003). Agent core: <code>pi-agent-core</code> with 16 tools — watcher proxies (<code>query_news</code>, <code>query_disasters</code>, <code>query_chokepoints</code>, <code>query_vessels</code>, <code>query_fred</code>, <code>query_edgar</code>, …), <code>query_ducklake</code> for supply-chain tracing, web search, and <code>get_notes</code>/<code>save_note</code> for cross-cycle memory. Schedule: 4-hour analysis cycles; turbomsg subscriptions on upstream watcher topics fire early on super-events — GDACS Red alert, WMO Extreme warning, chokepoint friction spike, or news-volume surge. Results land at <code>/api/events</code> and publish on <code>data.world-observer.brief-published</code>.</p>
+    <div class="example"><div class="lbl">Example — super-event trigger flow</div><pre class="code">data.disaster-watch.collected  { severity: "Red" }\n  → sentinel wakes immediately (skips 4h wait)\n  → cross-layer scan: watchers + DuckLake supply chain\n  → WorldImpactBrief published:\n     immediate: 3 chokepoints under pressure\n     weeks:     12 equity instruments flagged (by RBICS sector)\n     months:    macro scenario — rates, energy, shipping</pre></div>
+  </div>
+`};
+
+PAGES.oraclebot = { title:"Catalog assistant", nav:"Catalog assistant", ico:"💬", parent:"intelligence", render: () => `
+  ${back('intelligence')}
+  <div class="eyebrow">Intelligence · the front desk</div>
+  <h1 class="page">💬 Catalog assistant</h1>
+  <p class="lede">A chat assistant living in Slack that always knows what is in the datalake right now. Ask it in plain English — "what prediction-market data do we have?" — and it answers from a live view of the catalog, then hands you the exact snippet to pull the data yourself.</p>
+  <ul class="clean">
+    <li><strong>Knows what exists now</strong> — current datasets, their schemas, approximate size and freshness.</li>
+    <li><strong>A guide, not a gatekeeper</strong> — it helps you discover and connect, then gets out of the way.</li>
+    <li><strong>Read-only by design</strong> — it never writes, and never claims it can.</li>
+    <li><strong>Scales with you</strong> — for heavy queries it points you at the distributed-query router.</li>
+  </ul>
+  <div class="techbox tech">
+    <div class="k">Technical detail</div>
+    <p>"data-oracle": a Slack bot (slack-bolt, socket mode) powered by Claude. A background loop refreshes a catalog snapshot (schemas, row counts, freshness hints) roughly hourly; on @mention it injects that snapshot into the system prompt so answers reflect the live catalog. It returns ready-to-run DuckDB + DuckLake connection code and routes large queries to the Quack smart-router CLI.</p>
+    <div class="example"><div class="lbl">Example — in Slack</div><pre class="code">@data-oracle what prediction-market data do we have?\n\n→ kalshi_trades — 88M rows, since 2021\n  polymarket_trades — 405M rows, since 2023\n  Connect read-only:\n  ATTACH 'ducklake:.../catalog.ducklake' AS lake (READ_ONLY);</pre></div>
+  </div>
+`};
+
+/* ---------- L1  AUTONOMOUS RESEARCH ---------- */
+PAGES.research = { title:"Autonomous research", nav:"Autonomous research", ico:"🔬", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">The point of the whole thing</div>
+  <h1 class="page">It researches the world, not just stores it</h1>
+  <p class="lede">The collected world is raw material. On top of it runs a self-directed research lab: LLM "researchers" invent trading-signal hypotheses, test them to destruction against the datalake, and a meta-layer reads across every experiment to decide what is actually real.</p>
+  <div class="cards">
+    ${card('researchers','🧪','Individual researchers','Each is an LLM agent that invents a signal hypothesis, codes it, backtests it against the lake, and tortures it until it breaks — keep or discard.')}
+    ${card('feynman','🧠','Feynman metalayer','A meta-scientist that reads across hundreds of experiments, cross-checks the academic literature, and promotes or kills whole families of ideas.')}
+    ${card('leaderboards','🏆','Leaderboards','Every signal scored on one number, ranked, with full history. The best rise; dead-ends are retired.')}
+    ${card('traces','📡','Research traces','Every experiment and verdict is published as an event and archived — the entire research history is replayable.')}
+  </div>
+  <div class="callout">
+    <div class="k">Why this is the headline</div>
+    <p>Collected world → autonomous hypotheses → evidence-gated keep/discard → a compounding library of validated signals. The data platform exists so this loop can run without a human in it.</p>
+  </div>
+`};
+
+const RESEARCH = [
+  ['researchers','🧪','Individual researchers','A fleet of LLM agents autonomously discovers signals that predict market volatility. Each owns an "archetype" — a family of related hypotheses — and works it like a scientist: hypothesize, build, test, judge.',
+    ['Proposes a signal with a stated causal mechanism, then writes the code to compute it.',
+     'Backtests against the datalake, then runs torture tests: does it beat random noise? survive doubled trading costs? hold up out-of-sample?',
+     'Returns one verdict — keep or discard — and the result is archived either way.',
+     'Scored on a single fitness number, so every idea across the fleet is directly comparable.'],
+    'System: <code>vol-signal-research</code>. Fitness = ICIR at a 5-day horizon (<code>icir_h5</code>). A three-floor scientific gate on a 2023 validation slice — beat AR(1)×1.1, beat the 95th percentile of a 1000-draw null-shuffle ×1.5, and clear an absolute floor — with 2024+ held out as a blind audit. 7 archetypes across equity, rates, commodities and FX. Run loops powered by Claude or GPT-4o; each archetype is its own session, persisted to cold storage.'],
+  ['feynman','🧠','Feynman metalayer','Above the researchers sits a meta-layer. It does not generate strategies — it interprets what the researchers find, across all of them at once, and steers the agenda.',
+    ['Reads hundreds of completed experiments and computes per-family aggregate statistics.',
+     'Deep-dives the outliers, then cross-references findings against academic literature.',
+     'Refines, promotes, or retires entire archetypes based on accumulated evidence.',
+     'Turns a pile of individual runs into a curated, evolving research programme.'],
+    'A reactive intelligence service built as a Pi-agent (Bun/Hono) running a single LLM agent with ~11 tools: <code>analyze_experiments</code>, <code>fetch_experiment_details</code>, <code>search_papers</code> (Semantic Scholar), <code>web_search</code>, <code>save_insight</code>, and <code>update</code>/<code>promote</code>/<code>retire_archetype</code>. Archetypes climb a lifecycle: draft → reviewed → verified → live.'],
+  ['leaderboards','🏆','Leaderboards','Because every signal is scored on the same number, they all sit on one leaderboard — ranked, versioned and visible. The system has a built-in sense of what is working.',
+    ['One fitness metric ranks every signal and every archetype.',
+     'Full score history per session — you can watch an idea improve or decay over time.',
+     'A research portal browses sessions, scores and the agents’ own memory.',
+     'Promotion is earned: a draft idea only climbs to "verified" on evidence.'],
+    'A web research portal exposes the ICIR leaderboards, a session browser, and per-agent memory across the whole fleet.'],
+  ['traces','📡','Research traces','Nothing the research system does is ephemeral. Every experiment and every meta-decision is published as an event and its artifacts archived — so the entire history is auditable and replayable.',
+    ['Each completed experiment fires an event carrying its metrics and verdict.',
+     'The meta-layer’s decisions — proposed, promoted, withdrawn, insight — are events too.',
+     'Full artifacts (strategy code, metrics, notes) land in cold storage.',
+     'It rides the same event tier and archive the watchers use — research is just another producer.'],
+    'turbomsg topics: <code>auto-research.experiment.completed</code> and <code>feynman.archetype.{proposed,promoted,withdrawn}</code> / <code>feynman.insight.recorded</code>. Per-experiment artifacts on S3: <code>metadata.json</code>, <code>results.json</code>, <code>strategy.py</code>, <code>notes.md</code>.'],
+];
+
+RESEARCH.forEach(r => {
+  PAGES[r[0]] = { title:r[2], nav:r[2], ico:r[1], parent:"research", render: () => `
+    ${back('research')}
+    <div class="eyebrow">Autonomous research</div>
+    <h1 class="page">${r[1]} ${r[2]}</h1>
+    <p class="lede">${r[3]}</p>
+    <ul class="clean">${r[4].map(b=>`<li>${b}</li>`).join('')}</ul>
+    <div class="techbox tech"><div class="k">Technical detail</div><p>${r[5]}</p></div>
+  `};
+});
+
+/* ---------- L1  INFRASTRUCTURE ---------- */
+PAGES.infrastructure = { title:"What runs it", nav:"What runs it", ico:"⚙", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">Infrastructure</div>
+  <h1 class="page">The plumbing</h1>
+  <p class="lede">None of this is exotic. It runs on standard, boring, reliable building blocks — which is exactly why it stays up and stays cheap.</p>
+  <div class="cards">
+    ${card('infra-orch','☸','Orchestration','A managed Kubernetes cluster runs every service — always-on watchers as long-lived apps, periodic ones as scheduled jobs.')}
+    ${card('infra-store','🪣','Object storage + catalog','One cloud bucket holds the whole archive; a lakehouse catalog makes it queryable with versioning and time-travel.')}
+    ${card('infra-quack','🦆','Distributed query','When a question is too big for one machine, a smart router fans it across an elastic cluster and streams the answer back — small queries stay local, big ones scale out automatically.')}
+    ${card('infra-msg','📡','Messaging','A broker-free, storage-backed message layer for events and write-coordination — nothing extra to operate.')}
+    ${card('infra-git','🌿','Code hosting','A self-hosted Git forge keeps every service&#39;s source in one place, with daily backups.')}
+  </div>
+`};
+
+const INFRA = {
+  'infra-orch':['☸','Orchestration','Every service runs on managed Kubernetes. Always-on watchers are long-lived workloads; periodic collectors run as scheduled jobs that wake, collect, and sleep.',
+    'Amazon EKS. Long-lived watchers as StatefulSets (stable storage); periodic collectors as CronJobs. Namespaces separate the watcher fleet, the hub, the intelligence services and infra.'],
+  'infra-store':['🪣','Object storage + catalog','A single cloud bucket is the durable home for all collected history. A lakehouse catalog turns those files into one queryable, versioned table.',
+    'S3 bucket <code>firm-datalake</code> (Parquet) + <code>DuckLake</code> catalog (ACID, versioning, time-travel). A compaction CronJob keeps file counts healthy.'],
+  'infra-quack':['🦆','Distributed query','Most questions run fine on a single machine. When one is too big, a smart router transparently sends it to an elastic cluster and streams the results back — the user just sees a fast answer.',
+    'Codename "Quack": a Ray-based distributed DuckDB cluster. A Smart Router CLI parses the SQL (sqlglot), estimates table sizes, and decides local-vs-cluster. A FastAPI coordinator on the Ray head schedules 0–20 autoscaling spot workers (32 CPU / 64 GiB each); results stream back as Arrow IPC.'],
+  'infra-msg':['📡','Messaging','Services coordinate through a lightweight message layer that needs no dedicated server — it rides on the object store you already have.',
+    '<code>turbomsg</code>: S3-backed messaging for event topics and write-lock coordination. No Kafka/broker to run or pay for.'],
+  'infra-git':['🌿','Code hosting','All source code lives in a self-hosted Git forge, so the platform owns its own tooling end-to-end. Repos are backed up daily.',
+    'Self-hosted Forgejo (org <code>quant-research</code>) with REST API. A daily CronJob backs every repo up to S3.'],
+};
+Object.entries(INFRA).forEach(([k,v]) => {
+  PAGES[k] = { title:v[1], nav:v[1], ico:v[0], parent:"infrastructure", render: () => `
+    ${back('infrastructure')}
+    <div class="eyebrow">Infrastructure</div>
+    <h1 class="page">${v[0]} ${v[1]}</h1>
+    <p class="lede">${v[2]}</p>
+    <div class="techbox tech"><div class="k">Technical detail</div><p>${v[3]}</p></div>
+  `};
+});
+
+/* ---------- L1  PROPOSAL ---------- */
+PAGES.proposal = { title:"Build one like it", nav:"Build one like it", ico:"◆", parent:"home", render: () => `
+  ${back('home')}
+  <div class="eyebrow">The proposal</div>
+  <h1 class="page">Build one like it</h1>
+  <p class="lede">The system above is already running. The proposal is to stand up the same pattern deliberately — a world-observing, LLM-explored datalake — as shared infrastructure rather than a side project.</p>
+
+  <h2 class="page">Why it's worth doing</h2>
+  <ul class="clean">
+    <li><strong>One source of truth.</strong> Every external signal collected once, kept forever, joinable by anyone.</li>
+    <li><strong>Cheap to keep, fast to ask.</strong> The tiering pays for completeness without sacrificing speed.</li>
+    <li><strong>Grows by addition.</strong> A new data source is a new watcher — no re-architecting.</li>
+    <li><strong>Built for AI.</strong> Agents get a clean, joined surface to explore, so the answers get better as the models do.</li>
+  </ul>
+
+  <h2 class="page">A phased plan</h2>
+  <div style="max-width:820px;margin-top:18px;">
+    ${phase(1,'One tier, one watcher','Stand up the cold-storage bucket + catalog and a single watcher writing to it. Prove the archive end-to-end.')}
+    ${phase(2,'Hot store + API','Give the watcher a live store and an HTTP API. Now you can ask "what just happened?" in milliseconds.')}
+    ${phase(3,'Events + a second watcher','Add the event tier and a second source. Confirm the "grows by addition" promise holds.')}
+    ${phase(4,'The hub','Put the cross-layer hub in front. Cross-source questions become possible.')}
+    ${phase(5,'Agents',"Point LLM agents at the hub and the lake. The system starts answering, not just storing.")}
+    ${phase(6,'Autonomous research',"Let LLM researchers generate and test hypotheses against the lake, with a meta-layer curating the survivors. The platform now produces knowledge on its own.",true)}
+  </div>
+
+  <div class="callout">
+    <div class="k">The ask</div>
+    <p>Endorse phases 1–2 as a small proof of value. Everything after is incremental and independently useful.</p>
+  </div>
+
+  <div class="footnote">Prepared as a concept walkthrough. All system names and identifiers in this document are generic stand-ins for illustration.</div>
+`};
+
+/* ---------- helpers ---------- */
+function tile(id,ico,h,p,go){ return `<div class="tile" onclick="go('${id}')"><div class="ico">${ico}</div><h3>${h}</h3><p>${p}</p><div class="go">${go} →</div></div>`; }
+function card(id,ico,name,p,tags){ return `<div class="card" onclick="go('${id}')"><div class="top"><span class="ico">${ico}</span><span class="name">${name}</span></div><p>${p}</p>${tags?`<div class="tagrow">${tags.map(t=>`<span class="tag">${t}</span>`).join('')}</div>`:''}</div>`; }
+function plannedCard(id,ico,name,p,tags){ return `<div class="card planned" onclick="go('${id}')"><div class="top"><span class="ico">${ico}</span><span class="name">${name}</span></div><p>${p}</p>${tags?`<div class="tagrow">${tags.map(t=>`<span class="tag planned">${t}</span>`).join('')}</div>`:''}</div>`; }
+function back(id){ return `<div class="backlink" onclick="go('${id}')">← ${PAGES[id].title}</div>`; }
+function phase(n,h,p,last){ return `<div class="phase"><div class="rail"><div class="pin">${n}</div>${last?'':'<div class="line"></div>'}</div><div class="body"><h3>${h}</h3><p>${p}</p></div></div>`; }
+
+/* ---------- nav tree ---------- */
+const TREE = [
+  ['home',[]],
+  ['concept',['tier-event','tier-hot','tier-cold']],
+  ['observers', [...ALL_WATCHER_IDS, ...ALL_POTENTIAL_IDS]],
+  ['intelligence',['hub','agent','sentinel','oraclebot']],
+  ['research', RESEARCH.map(r=>r[0])],
+  ['infrastructure',Object.keys(INFRA)],
+  ['proposal',[]],
+];
+
+function buildNav(){
+  const nav = document.getElementById('nav');
+  nav.innerHTML = TREE.map(([pid,kids])=>{
+    const p = PAGES[pid];
+    const children = kids.map(k=>`<div class="nav-item lvl1" data-id="${k}" onclick="go('${k}')"><span>${PAGES[k].nav}</span></div>`).join('');
+    const caret = kids.length?`<span class="nav-caret">▶</span>`:'';
+    return `<div class="nav-group" data-group="${pid}">
+      <div class="nav-item" data-id="${pid}" onclick="navClick(event,'${pid}',${kids.length})"><span class="ico">${p.ico}</span><span>${p.nav}</span>${caret}</div>
+      <div class="nav-children">${children}</div>
+    </div>`;
+  }).join('');
+}
+
+function navClick(e,id,hasKids){ go(id); }
+
+function go(id){ location.hash = '#/'+id; }
+
+function render(id){
+  const p = PAGES[id] || PAGES.home;
+  document.getElementById('main').innerHTML = p.render();
+  document.getElementById('main').scrollTop = 0;
+  window.scrollTo(0,0);
+  // breadcrumb
+  const chain=[]; let cur=id;
+  while(cur){ chain.unshift(cur); cur = PAGES[cur] && PAGES[cur].parent; }
+  document.getElementById('crumb').innerHTML = chain.map((c,i)=>
+    i===chain.length-1 ? `<span>${PAGES[c].title}</span>` : `<a onclick="go('${c}')">${PAGES[c].title}</a><span class="sep">/</span>`
+  ).join('');
+  // nav active state + open the right group
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active', n.dataset.id===id));
+  document.querySelectorAll('.nav-group').forEach(g=>{
+    const gid=g.dataset.group;
+    const open = gid===id || (PAGES[id] && PAGES[id].parent===gid) || (PAGES[id] && PAGES[PAGES[id].parent] && PAGES[PAGES[id].parent].parent===gid);
+    g.classList.toggle('open', !!open);
+  });
+}
+
+function route(){ const id=(location.hash||'#/home').replace('#/',''); render(id); }
+
+document.getElementById('techBtn').addEventListener('click', e=>{
+  document.body.classList.toggle('show-tech');
+  const on = document.body.classList.contains('show-tech');
+  e.target.classList.toggle('on', on);
+  e.target.textContent = on ? '✓ Technical detail' : '+ Technical detail';
+});
+
+buildNav();
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
